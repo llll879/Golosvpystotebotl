@@ -480,6 +480,7 @@ panel = Router()
 r = Router()
 NOCMD = ~F.text.startswith("/")
 PRIV = F.chat.type == ChatType.PRIVATE
+GRP = F.chat.type.in_(GROUPS)
 
 
 class IsMain(Filter):
