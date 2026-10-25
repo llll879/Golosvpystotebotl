@@ -2434,7 +2434,7 @@ async def p_ai_addkey(c: CallbackQuery, state: FSMContext):
 async def p_ai_key_save(m: Message, state: FSMContext):
     raw = m.text or ""
     await safe(m.delete())
-    tokens = [x for x in re.findall(r"[A-Za-z0-9_\-]{20,}", raw)]
+    tokens = [x for x in re.findall(r"[A-Za-z0-9._-]{20,}", raw)]
     if not tokens:
         return await bot.send_message(m.chat.id, "Не вижу ключ. Отправьте его ещё раз или /cancel.")
     existing = await db_keys()
