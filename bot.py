@@ -2430,26 +2430,53 @@ async def p_ai_addkey(c: CallbackQuery, state: FSMContext):
     await c.answer()
 
 
+
 @panel.message(AiCfg.key, NOCMD)
 async def p_ai_key_save(m: Message, state: FSMContext):
     raw = m.text or ""
     await safe(m.delete())
-    tokens = [x for x in re.findall(r"[A-Za-z0-9._-]{20,}", raw)]
+
+    # Поддержка новых Gemini Auth keys вида AQ. и старых ключей.
+    tokens = re.findall(
+        r"(?<![A-Za-z0-9._-])(?:AQ\.[A-Za-z0-9._-]{20,}|[A-Za-z0-9_-]{20,})(?![A-Za-z0-9._-])",
+        raw.strip().strip("`\"'")
+    )
+
     if not tokens:
-        return await bot.send_message(m.chat.id, "Не вижу ключ. Отправьте его ещё раз или /cancel.")
+        return await bot.send_message(
+            m.chat.id,
+            "Не вижу ключ. Отправьте его ещё раз или /cancel."
+        )
+
     existing = await db_keys()
     model = await get_model("admin")
     lines = []
+
     for tkn in tokens[:5]:
         if tkn in existing:
             lines.append(f"• {mask_key(tkn)} — уже добавлен")
             continue
-        st, _, err = await gem_request(tkn, model, "", [{"role": "user", "parts": [{"text": "Скажи: ок"}]}], max_tokens=256)
+
+        st, _, err = await gem_request(
+            tkn,
+            model,
+            "",
+            [{"role": "user", "parts": [{"text": "Скажи: ок"}]}],
+            max_tokens=256
+        )
+
         if st in (200, 429):
             existing.append(tkn)
-            lines.append(f"• {mask_key(tkn)} — ✅ добавлен" + (" (лимит сейчас исчерпан)" if st == 429 else ""))
+            lines.append(
+                f"• {mask_key(tkn)} — ✅ добавлен"
+                + (" (лимит сейчас исчерпан)" if st == 429 else "")
+            )
         else:
-            lines.append(f"• {mask_key(tkn)} — ❌ не подошёл ({esc(st)}: {esc(err[:120])})")
+            lines.append(
+                f"• {mask_key(tkn)} — ❌ не подошёл "
+                f"({esc(st)}: {esc(err[:120])})"
+            )
+
     await set_setting("ai_keys", "\n".join(existing))
     await log(m.from_user.id, "ai_keys_changed", f"всего в боте: {len(existing)}")
     await state.clear()
