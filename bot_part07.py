@@ -19,6 +19,11 @@ KB_MAIN_EXTRA = """=== ДОПОЛНИТЕЛЬНЫЕ ПОДРОБНОСТИ ДЛ�
 БАЗА ДАННЫХ (таблицы)
 - settings (настройки и тексты), admins, users, groups, dialogs, gmap (соответствие сообщений группы диалогам), logs, events (события для аналитики и «нормы»), rests (отдых), relay (соответствие сообщений для правок и удалений), applications (анкеты), topics (темы пользователей в форум-чатах).
 
+ИМПОРТ СТАРЫХ ПОЛЬЗОВАТЕЛЕЙ
+- Telegram не даёт боту узнать, кто писал ему раньше, поэтому ID пользователей, пришедших до подключения этого кода (например, из Livegram), загружаются вручную: /admin → «📥 Импорт» → «📤 Загрузить список ID» (файл .txt/.csv/.json или текст; в таблицах ID в первом столбце). Бот показывает число найденных, новых и примеры ID и просит подтвердить.
+- Импортированные получают метку (first_seen = 2000-01-01), поэтому входят в «Всего» и «Доступны для рассылки», но не считаются новыми/активными; когда такой человек пишет боту, он становится обычным пользователем. «🔢 Число старых без ID» добавляет в аналитику строку про тех, чьих ID нет (в рассылке они участвовать не могут).
+- Рассылка дойдёт только до тех, кто когда-либо запускал именно этого бота (по этому токену) и не заблокировал его. Недоступных бот помечает при рассылке и больше не трогает.
+
 ПАНЕЛЬ: ДОПОЛНИТЕЛЬНО
 - «🤖 ИИ» — настройка ИИ-помощника; «📋 Анкета» — вопросы и тексты анкеты, приём вкл/выкл, статистика заявок.
 - «🔧 Настройки» — переключатели: метка в группе (@юзернейм или #тег), реакция 👍, напоминания, автобан, удаление пользователем, передача реакций, режим тем.
@@ -32,7 +37,7 @@ KB_MAIN_EXTRA = """=== ДОПОЛНИТЕЛЬНЫЕ ПОДРОБНОСТИ ДЛ�
 - Если все ключи не работают, админы получают сообщение с отсылкой к человеку; причины пишутся в логи (ai_key_failed, ai_error).
 
 ЛОГИ: ДЕЙСТВИЯ
-- start, user_message, take, admin_reply, close, release, ban, unban, autoban, user_edit, admin_edit, admin_delete, user_delete, rest_start, rest_end, rest_set_by_main, rest_ended_by_main, welcome_text_changed, welcome_photo_changed, welcome_photo_removed, text_changed, admin_added, admin_edited, admin_deleted, admin_level, admin_toggle, main_group_set, group_deleted, bind_group, broadcast_start, broadcast_done, setting_toggled, own_greeting_changed; системные ошибки: pin_failed, unpin_failed, copy_failed, relay_error, forward_error, ai_key_failed, ai_error.
+- start, user_message, take, admin_reply, close, release, ban, unban, autoban, user_edit, admin_edit, admin_delete, user_delete, rest_start, rest_end, rest_set_by_main, rest_ended_by_main, welcome_text_changed, welcome_photo_changed, welcome_photo_removed, text_changed, admin_added, admin_edited, admin_deleted, admin_level, admin_toggle, main_group_set, group_deleted, bind_group, broadcast_start, broadcast_done, users_imported, legacy_users_set, setting_toggled, own_greeting_changed; системные ошибки: pin_failed, unpin_failed, copy_failed, relay_error, forward_error, ai_key_failed, ai_error.
 
 ЧАСТЫЕ ПРОБЛЕМЫ
 - Новая версия не запускается: смотрите логи Render, Exited with status 1 — старая версия продолжает работать; нужно исправить ошибку и задеплоить снова.

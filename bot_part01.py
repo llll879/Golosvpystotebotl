@@ -144,6 +144,14 @@ class DB:
             await self.lite.execute(sql, a)
             await self.lite.commit()
 
+    async def executemany(self, sql, rows):
+        sql = self._q(sql)
+        if self.is_pg:
+            await self.pg.executemany(sql, rows)
+        else:
+            await self.lite.executemany(sql, rows)
+            await self.lite.commit()
+
     async def fetchall(self, sql, *a):
         sql = self._q(sql)
         if self.is_pg:

@@ -174,7 +174,7 @@ async def p_bc(c: CallbackQuery, state: FSMContext):
 async def p_bc_got(m: Message, state: FSMContext):
     await state.update_data(src_chat=m.chat.id, src_msg=m.message_id)
     n = (await db.fetchone("SELECT COUNT(*) c FROM users WHERE banned=0 AND alive=1"))["c"]
-    await m.answer(f"☝️ Так увидят получатели. Отправить <b>{n}</b> пользователям?",
+    await m.answer(f"☝️ Так увидят получатели. Отправить <b>{n}</b> пользователям (≈ {int(n * 0.06) + 1} сек)?",
                    reply_markup=kb([[btn("✅ Отправить", "p:bcgo"), btn("❌ Отмена", "p:menu")]]))
 
 
@@ -187,13 +187,14 @@ async def p_bc_go(c: CallbackQuery, state: FSMContext):
     uids = [x["user_id"] for x in await db.fetchall("SELECT user_id FROM users WHERE banned=0 AND alive=1")]
     await c.message.edit_text(f"⏳ Рассылка запущена ({len(uids)} получателей)...")
     await log(c.from_user.id, "broadcast_start", f"{len(uids)} users")
-    asyncio.create_task(do_broadcast(c.message.chat.id, d["src_chat"], d["src_msg"], uids, c.from_user.id))
+    asyncio.create_task(do_broadcast(c.message.chat.id, d["src_chat"], d["src_msg"], uids, c.from_user.id, c.message))
     await c.answer()
 
 
-async def do_broadcast(admin_chat, src_chat, src_msg, uids, actor):
-    ok = fail = 0
-    for uid in uids:
+async def do_broadcast(admin_chat, src_chat, src_msg, uids, actor, status_msg=None):
+    ok = fail = gone = 0
+    total = len(uids)
+    for i, uid in enumerate(uids, 1):
         for attempt in range(2):
             try:
                 await bot.copy_message(uid, src_chat, src_msg)
@@ -204,13 +205,24 @@ async def do_broadcast(admin_chat, src_chat, src_msg, uids, actor):
             except TelegramForbiddenError:
                 await db.execute("UPDATE users SET alive=0 WHERE user_id=?", uid)
                 fail += 1
+                gone += 1
+                break
+            except TelegramBadRequest as e:
+                if any(x in str(e).lower() for x in ("chat not found", "deactivated", "user not found")):
+                    await db.execute("UPDATE users SET alive=0 WHERE user_id=?", uid)
+                    gone += 1
+                fail += 1
                 break
             except Exception:  # noqa
                 fail += 1
                 break
+        if status_msg and i % 100 == 0:
+            await safe(status_msg.edit_text(f"⏳ Рассылка: {i}/{total} (доставлено {ok}, не доставлено {fail})"))
         await asyncio.sleep(0.05)
     await log(actor, "broadcast_done", f"ok={ok} fail={fail}")
-    await safe(bot.send_message(admin_chat, f"📣 Рассылка завершена.\n✅ Доставлено: {ok}\n❌ Не доставлено: {fail}"))
+    extra = (f"\n🚫 Недоступны (заблокировали бота / аккаунт удалён / не запускали бота): {gone} — помечены "
+             "и в следующих рассылках не участвуют.") if gone else ""
+    await safe(bot.send_message(admin_chat, f"📣 Рассылка завершена.\n✅ Доставлено: {ok}\n❌ Не доставлено: {fail}{extra}"))
 
 
 # ── ИИ: настройки (Gemini) ──

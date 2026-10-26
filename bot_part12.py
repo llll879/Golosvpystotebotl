@@ -7,6 +7,11 @@ async def p_stats(c: CallbackQuery):
     new_u = [await cnt("SELECT COUNT(*) c FROM users WHERE first_seen>=?", ago(d)) for d in (0, 7, 30)]
     act_u = [await cnt("SELECT COUNT(*) c FROM users WHERE last_seen>=?", ago(d)) for d in (0, 7, 30)]
     repeat = await cnt("SELECT COUNT(*) c FROM (SELECT user_id FROM dialogs GROUP BY user_id HAVING COUNT(*)>1) t")
+    imp = await cnt("SELECT COUNT(*) c FROM users WHERE first_seen=?", IMPORT_EPOCH)
+    imp_back = await cnt("SELECT COUNT(*) c FROM users WHERE first_seen=? AND last_seen>?", IMPORT_EPOCH, IMPORT_EPOCH)
+    legacy = int(await get_setting("legacy_users", "0") or 0)
+    legacy_txt = f" (+ {legacy} старых без ID = <b>{tot + legacy}</b>)" if legacy else ""
+    imp_txt = f"Из старой истории (импорт): {imp} · уже вернулись: {imp_back}\n" if imp else ""
 
     ds = {x["status"]: x["c"] for x in await db.fetchall("SELECT status, COUNT(*) c FROM dialogs GROUP BY status")}
     d_tot = sum(ds.values())
@@ -33,10 +38,10 @@ async def p_stats(c: CallbackQuery):
     text = (
         "📊 <b>Аналитика бота</b>\n\n"
         "👥 <b>Пользователи</b>\n"
-        f"Всего: <b>{tot}</b>\n"
+        f"Всего: <b>{tot}</b>{legacy_txt}\n"
         f"Доступны для рассылки: {alive}\n"
         f"Заблокировали бота: {tot - alive}\n"
-        f"Забанены: {banned}\n"
+        f"Забанены: {banned}\n{imp_txt}"
         f"Обращались повторно: {repeat}\n"
         "<i>сегодня / 7 дней / 30 дней</i>\n"
         f"{row('Новые', new_u)}\n"

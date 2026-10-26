@@ -264,6 +264,158 @@ async def apply_to_admin(c: CallbackQuery, state: FSMContext):
     await c.answer()
 
 
+# ── Импорт старых пользователей (до подключения этого кода, например из Livegram) ──
+class ImpS(StatesGroup):
+    wait = State()
+    confirm = State()
+    legacy = State()
+
+
+IMPORT_EPOCH = "2000-01-01 00:00:00"  # метка «импортирован»: такие пользователи не считаются новыми/активными
+
+
+def _ids_from_json(obj, out):
+    if isinstance(obj, list):
+        for it in obj:
+            _ids_from_json(it, out)
+    elif isinstance(obj, dict):
+        v = obj.get("user_id", obj.get("id"))
+        if v is not None:
+            _ids_from_json(v, out)
+        else:
+            for x in obj.values():
+                if isinstance(x, (list, dict)):
+                    _ids_from_json(x, out)
+    elif isinstance(obj, (int, str)) and str(obj).strip().isdigit():
+        out.append(int(str(obj).strip()))
+
+
+def parse_ids(raw):
+    """Достаёт Telegram-ID пользователей из текста, CSV, TXT или JSON (в таблице ID — в первом столбце)."""
+    nums = []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, (list, dict)):
+            _ids_from_json(data, nums)
+    except Exception:  # noqa
+        for line in raw.splitlines():
+            line = line.strip().lstrip("\ufeff")
+            if not line:
+                continue
+            if re.fullmatch(r"[\d\s,;]+", line):  # строка из одних чисел — берём все
+                nums += [int(x) for x in re.findall(r"\d+", line)]
+            else:  # CSV-строка — ID в первом столбце
+                mm = re.search(r"(?<![\w.\-])\d{5,13}(?![\w.])", line)
+                if mm:
+                    nums.append(int(mm.group(0)))
+    out, seen = [], set()
+    for v in nums:
+        if 10000 <= v < 10 ** 13 and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+async def import_menu():
+    tot = await cnt("SELECT COUNT(*) c FROM users")
+    imp = await cnt("SELECT COUNT(*) c FROM users WHERE first_seen=?", IMPORT_EPOCH)
+    back = await cnt("SELECT COUNT(*) c FROM users WHERE first_seen=? AND last_seen>?", IMPORT_EPOCH, IMPORT_EPOCH)
+    alive = await cnt("SELECT COUNT(*) c FROM users WHERE alive=1 AND banned=0")
+    legacy = int(await get_setting("legacy_users", "0") or 0)
+    text = ("📥 <b>Импорт старых пользователей</b>\n\n"
+            "Telegram не позволяет боту узнать, кто писал ему раньше, поэтому ID тех, кто пользовался ботом до "
+            "подключения этого кода (например, в Livegram), нужно загрузить списком. После импорта они попадают в "
+            "рассылку и в аналитику.\n\n"
+            "<b>Как:</b> выгрузите ID из старого бота (или другого источника) и отправьте сюда файл .txt / .csv / .json "
+            "либо просто текст с ID (по одному в строке или через запятую). В таблицах ID должен быть в первом столбце.\n\n"
+            "⚠️ Рассылка дойдёт только до тех, кто когда-либо запускал <b>именно этого бота</b> (по этому токену) и не "
+            "заблокировал его. Недоступные бот пометит сам при первой рассылке и дальше не будет трогать.\n\n"
+            f"Сейчас в базе: <b>{tot}</b> · импортировано: {imp} (уже вернулись: {back}) · "
+            f"доступны для рассылки: {alive}\n"
+            + (f"Старых пользователей без ID (только для аналитики): {legacy}\n" if legacy else ""))
+    return text, kb([[btn("📤 Загрузить список ID", "p:imp_go")],
+                     [btn("🔢 Число старых без ID", "p:imp_legacy")], BACK])
+
+
+@panel.callback_query(F.data == "p:imp")
+async def p_imp(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    t, k = await import_menu()
+    await show(c, t, k)
+
+
+@panel.callback_query(F.data == "p:imp_go")
+async def p_imp_go(c: CallbackQuery, state: FSMContext):
+    await state.set_state(ImpS.wait)
+    await c.message.answer("📤 Отправьте файл (.txt, .csv, .json) или текст со списком ID пользователей. /cancel — отмена")
+    await c.answer()
+
+
+@panel.message(ImpS.wait, NOCMD)
+async def p_imp_got(m: Message, state: FSMContext):
+    raw = ""
+    if m.document:
+        name = (m.document.file_name or "").lower()
+        if name.endswith((".xlsx", ".xls", ".zip", ".rar", ".7z", ".pdf")):
+            return await m.answer("Этот формат не читается. Сохраните список как .csv или .txt и отправьте снова.")
+        if (m.document.file_size or 0) > 15 * 1024 * 1024:
+            return await m.answer("Файл больше 15 МБ — разбейте его на части.")
+        try:
+            buf = io.BytesIO()
+            await bot.download(m.document, destination=buf)
+            raw = buf.getvalue().decode("utf-8", "ignore")
+        except Exception as e:  # noqa
+            return await m.answer(f"Не удалось скачать файл: {esc(e)}")
+    elif m.text:
+        raw = m.text
+    ids = parse_ids(raw)
+    if not ids:
+        return await m.answer("Не нашёл ни одного ID. Нужны числовые Telegram-ID (по одному в строке или через запятую).")
+    existing = {x["user_id"] for x in await db.fetchall("SELECT user_id FROM users")}
+    new = [i for i in ids if i not in existing]
+    await state.update_data(ids=new)
+    await state.set_state(ImpS.confirm)
+    sample = ", ".join(str(i) for i in ids[:3])
+    await m.answer(f"🔎 Найдено уникальных ID: <b>{len(ids)}</b>\n• новых: <b>{len(new)}</b>\n• уже в базе: {len(ids) - len(new)}\n"
+                   f"Примеры: <code>{sample}</code>\n\nСверьте примеры с вашим списком (это точно ID пользователей?) и подтвердите.",
+                   reply_markup=kb([[btn(f"✅ Добавить {len(new)}", "p:imp_ok")], [btn("❌ Отмена", "p:imp")]]))
+
+
+@panel.callback_query(ImpS.confirm, F.data == "p:imp_ok")
+async def p_imp_ok(c: CallbackQuery, state: FSMContext):
+    ids = (await state.get_data()).get("ids", [])
+    await state.clear()
+    for i in range(0, len(ids), 1000):
+        await db.executemany(
+            "INSERT INTO users(user_id,username,name,first_seen,last_seen,alive,banned) VALUES(?,?,?,?,?,1,0) "
+            "ON CONFLICT(user_id) DO NOTHING",
+            [(uid, None, "(импорт)", IMPORT_EPOCH, IMPORT_EPOCH) for uid in ids[i:i + 1000]])
+    await log(c.from_user.id, "users_imported", f"{len(ids)} ID")
+    t, k = await import_menu()
+    await show(c, f"✅ Добавлено пользователей: <b>{len(ids)}</b>. Теперь они участвуют в рассылках и аналитике.\n\n" + t, k)
+
+
+@panel.callback_query(F.data == "p:imp_legacy")
+async def p_imp_legacy(c: CallbackQuery, state: FSMContext):
+    await state.set_state(ImpS.legacy)
+    cur = await get_setting("legacy_users", "0")
+    await c.message.answer(f"🔢 Сколько пользователей было у старого бота, <b>ID которых нет</b>? (сейчас: {esc(cur)})\n"
+                           "Число покажется в аналитике отдельной строкой, в рассылке эти люди участвовать не смогут. "
+                           "0 — убрать. /cancel — отмена")
+    await c.answer()
+
+
+@panel.message(ImpS.legacy, NOCMD)
+async def p_imp_legacy_save(m: Message, state: FSMContext):
+    v = (m.text or "").strip().replace(" ", "")
+    if not v.isdigit():
+        return await m.answer("Нужно число, например 1500.")
+    await set_setting("legacy_users", str(int(v)))
+    await log(m.from_user.id, "legacy_users_set", v)
+    await state.clear()
+    await m.answer("✅ Сохранено.", reply_markup=kb([[btn("📥 К импорту", "p:imp")], BACK]))
+
+
 # ── Настройки ──
 SETTING_KEYS = ("f_label", "f_react", "f_remind", "f_antispam", "f_userdel", "f_reactions", "f_topics")
 

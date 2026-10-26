@@ -178,7 +178,7 @@ def menu_kb():
         [btn("📣 Рассылка", "p:bc"), btn("📊 Аналитика", "p:stats")],
         [btn("📜 Логи", "p:logs"), btn("🚫 Баны", "p:bans")],
         [btn("🤖 ИИ", "p:ai"), btn("📋 Анкета", "p:apply")],
-        [btn("🔧 Настройки", "p:settings")],
+        [btn("📥 Импорт", "p:imp"), btn("🔧 Настройки", "p:settings")],
     ])
 
 
