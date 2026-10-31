@@ -33,7 +33,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery,
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ───────────────────────── Настройки ─────────────────────────
-TOKEN = os.environ["BOT_TOKEN"]
+TOKEN = os.environ["BOT_TOKEN"].strip()
 OWNERS = {int(x) for x in os.getenv("MAIN_ADMIN_IDS", "").replace(" ", "").split(",") if x}
 PORT = int(os.getenv("PORT", "10000"))
 PING_INTERVAL = int(os.getenv("PING_INTERVAL", "600"))  # 10 минут
